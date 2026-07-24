@@ -5,9 +5,9 @@
     dockable scrubber to travel through a Body's feature history and watch the
     model rebuild at each step (per-Body Body.Tip scrubber).</description>
   <version>0.1.0</version>
-  <date>2026-07-23</date>
-  <maintainer email="32083114+Josiah05230@users.noreply.github.com">Josiah05230</maintainer>
-  <author email="32083114+Josiah05230@users.noreply.github.com">Josiah05230</author>
+  <date>2026-07-24</date>
+  <maintainer email="Josiah05230@users.noreply.github.com">Josiah05230</maintainer>
+  <author>Josiah05230</author>
   <license file="LICENSE">MIT</license>
   <icon>Resources/icons/PartDesignTimeline.svg</icon>
   <url type="repository" branch="main">https://github.com/Josiah05230/PartDesignTimeline</url>

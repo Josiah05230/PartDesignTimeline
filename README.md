@@ -7,6 +7,8 @@ watch the model rebuild at each step.
 FreeCAD has no native horizontal timeline; this addon adds one on top of the
 existing `Body.Tip` mechanism.
 
+![screenshot](Resources/screenshot.png)
+<!-- TODO: drop a real screenshot at Resources/screenshot.png before publishing -->
 
 ## Features
 
