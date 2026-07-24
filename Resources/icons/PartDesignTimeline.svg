@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- PartDesignTimeline addon icon: a horizontal history track with feature chips
+       and a highlighted scrubber marker -->
+  <rect x="6" y="30" width="52" height="4" rx="2" fill="#8a94a6"/>
+  <!-- feature chips along the track -->
+  <rect x="10" y="24" width="9" height="16" rx="2" fill="#5b6472"/>
+  <rect x="22" y="24" width="9" height="16" rx="2" fill="#5b6472"/>
+  <rect x="46" y="24" width="9" height="16" rx="2" fill="#5b6472"/>
+  <!-- current step (highlighted) -->
+  <rect x="34" y="22" width="9" height="20" rx="2" fill="#2e8bff"/>
+  <!-- scrubber handle over the current step -->
+  <line x1="38.5" y1="12" x2="38.5" y2="52" stroke="#2e8bff" stroke-width="2"/>
+  <polygon points="38.5,10 34.5,15 42.5,15" fill="#2e8bff"/>
+</svg>

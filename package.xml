@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<package format="1" xmlns="https://wiki.freecad.org/Package_Metadata">
+  <name>PartDesignTimeline</name>
+  <description>Fusion-360-style horizontal history timeline for PartDesign: a
+    dockable scrubber to travel through a Body's feature history and watch the
+    model rebuild at each step (per-Body Body.Tip scrubber).</description>
+  <version>0.1.0</version>
+  <date>2026-07-23</date>
+  <maintainer email="32083114+Josiah05230@users.noreply.github.com">Josiah05230</maintainer>
+  <author email="32083114+Josiah05230@users.noreply.github.com">Josiah05230</author>
+  <license file="LICENSE">MIT</license>
+  <icon>Resources/icons/PartDesignTimeline.svg</icon>
+  <url type="repository" branch="main">https://github.com/Josiah05230/PartDesignTimeline</url>
+  <url type="readme">https://github.com/Josiah05230/PartDesignTimeline/blob/main/README.md</url>
+  <url type="bugtracker">https://github.com/Josiah05230/PartDesignTimeline/issues</url>
+  <content>
+    <workbench>
+      <classname>PartDesignTimeline</classname>
+      <subdirectory>./</subdirectory>
+      <icon>Resources/icons/PartDesignTimeline.svg</icon>
+      <freecadmin>1.0</freecadmin>
+    </workbench>
+  </content>
+</package>
