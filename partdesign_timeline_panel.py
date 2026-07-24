@@ -287,16 +287,35 @@ class TimelineWidget(QtWidgets.QWidget):
 
     def _rename(self, feat):
         try:
-            # Build the dialog explicitly so we can give it a comfortable size —
-            # QInputDialog.getText() auto-sizes to a cramped minimum on this compositor.
-            dlg = QtWidgets.QInputDialog(self)
-            dlg.setInputMode(QtWidgets.QInputDialog.TextInput)
+            # A plain QDialog, not QInputDialog: QInputDialog ignores
+            # setMinimumSize/resize (it snaps to its own sizeHint), so on
+            # Wayland/COSMIC it renders cramped no matter what. A QDialog with an
+            # explicit layout honors the minimum width we set.
+            dlg = QtWidgets.QDialog(self)
             dlg.setWindowTitle("Rename feature")
-            dlg.setLabelText("New name:")
-            dlg.setTextValue(feat.Label)
-            dlg.setMinimumSize(360, 130)
-            if _qt_exec(dlg) and dlg.textValue():
-                feat.Label = dlg.textValue()
+            dlg.setSizeGripEnabled(True)
+            lay = QtWidgets.QVBoxLayout(dlg)
+            lay.addWidget(QtWidgets.QLabel("New name:"))
+            edit = QtWidgets.QLineEdit(feat.Label)
+            edit.selectAll()
+            # The child's minimum width is what the layout truly cannot shrink
+            # below — the most reliable size driver on Wayland/COSMIC, where the
+            # dialog's own minimum/resize hints are often ignored on first map.
+            edit.setMinimumWidth(360)
+            lay.addWidget(edit)
+            bb = QtWidgets.QDialogButtonBox(
+                QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+            bb.accepted.connect(dlg.accept)
+            bb.rejected.connect(dlg.reject)
+            lay.addWidget(bb)
+            dlg.setMinimumSize(420, 150)
+            dlg.resize(420, 150)
+            edit.setFocus(QtCore.Qt.OtherFocusReason)
+            # Belt-and-suspenders for compositors that map the window before
+            # honoring the requested size: re-assert it on the next event loop.
+            QtCore.QTimer.singleShot(0, lambda: dlg.resize(420, 150))
+            if _qt_exec(dlg) and edit.text().strip():
+                feat.Label = edit.text().strip()
                 self.refresh()
         except Exception as e:
             App.Console.PrintWarning("[PartDesignTimeline] rename: %s\n" % e)
@@ -372,6 +391,10 @@ def install_timeline():
             QtCore.QTimer.singleShot(1000, install_timeline)
             return
         if _STATE["dock"] is not None:
+            # Already created (maybe the user closed it) — re-show + refresh so
+            # View > Panels > Timeline reliably brings it back instead of no-op'ing.
+            _STATE["dock"].setVisible(True)
+            _STATE["dock"].raise_()
             _STATE["widget"].refresh()
             return
         dock = QtWidgets.QDockWidget("Timeline", mw)
