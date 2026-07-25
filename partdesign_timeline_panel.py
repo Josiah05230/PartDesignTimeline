@@ -62,6 +62,19 @@ def _qt_exec(widget, *args):
     return fn(*args)
 
 
+# internal drag payload for chip reordering (carries the source chip index)
+_MIME = "application/x-partdesign-timeline-chip"
+
+
+def _evt_pos(ev):
+    """Local position of a mouse/drag event as a QPoint. Qt6/PySide6 removed the
+    old .pos() on these events in favour of .position() (a QPointF)."""
+    try:
+        return ev.position().toPoint()
+    except Exception:
+        return ev.pos()
+
+
 class TimelineWidget(QtWidgets.QWidget):
     def __init__(self):
         super(TimelineWidget, self).__init__()
@@ -69,6 +82,8 @@ class TimelineWidget(QtWidgets.QWidget):
         self._feats = []
         self._body = None
         self._buttons = []
+        self._press_pos = None      # drag-to-reorder: where the press started
+        self._drag_src_idx = None   # drag-to-reorder: which chip is being dragged
         v = QtWidgets.QVBoxLayout(self)
         v.setContentsMargins(4, 2, 4, 2)
         v.setSpacing(1)
@@ -83,6 +98,13 @@ class TimelineWidget(QtWidgets.QWidget):
         self._rlay.setContentsMargins(2, 0, 2, 0)
         self._rlay.setSpacing(0)
         self._scroll.setWidget(self._row)
+        # drag-to-reorder: the strip is a drop target, with a thin insertion line
+        self._row.setAcceptDrops(True)
+        self._row.installEventFilter(self)
+        self._drop_line = QtWidgets.QFrame(self._row)
+        self._drop_line.setFrameShape(QtWidgets.QFrame.VLine)
+        self._drop_line.setStyleSheet("color: palette(highlight); background: palette(highlight);")
+        self._drop_line.hide()
         v.addWidget(self._scroll)
         # --- scrubber ---
         self._slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
@@ -144,8 +166,8 @@ class TimelineWidget(QtWidgets.QWidget):
                 fnt.setPointSizeF(max(7.0, fnt.pointSizeF() - 1.0))
                 b.setFont(fnt)
                 b.setToolTip(
-                    "%s (%s)\nClick/drag: rebuild to here   Ctrl+click: multi-select\n"
-                    "Double-click: edit   Right-click: rename / more"
+                    "%s (%s)\nClick: rebuild to here   Ctrl+click: multi-select\n"
+                    "Drag: reorder in history   Double-click: edit   Right-click: more"
                     % (feat.Label, feat.Name))
                 b.clicked.connect(lambda checked=False, idx=i: self._on_chip_click(idx))
                 b._ft_feat = feat
@@ -336,16 +358,171 @@ class TimelineWidget(QtWidgets.QWidget):
         except Exception as e:
             App.Console.PrintWarning("[PartDesignTimeline] recompute: %s\n" % e)
 
+    # ------------------------------------------------------------------ #
+    #  drag-to-reorder                                                    #
+    # ------------------------------------------------------------------ #
+    def _start_drag(self, btn):
+        """Begin an internal drag of a chip so it can be dropped elsewhere."""
+        if btn not in self._buttons:
+            return
+        self._drag_src_idx = self._buttons.index(btn)
+        drag = QtGui.QDrag(btn)
+        mime = QtCore.QMimeData()
+        mime.setData(_MIME, QtCore.QByteArray(str(self._drag_src_idx).encode()))
+        drag.setMimeData(mime)
+        try:  # drag a ghost of the chip itself
+            pm = btn.grab()
+            drag.setPixmap(pm)
+            drag.setHotSpot(QtCore.QPoint(pm.width() // 2, pm.height() // 2))
+        except Exception:
+            pass
+        self._press_pos = None
+        _qt_exec(drag, QtCore.Qt.MoveAction)   # blocks until dropped/cancelled
+        self._hide_drop_indicator()
+
+    def _drop_index(self, pos):
+        """Insertion index (0..N) for a drop at x-position `pos` in the strip."""
+        x = pos.x()
+        idx = 0
+        for b in self._buttons:
+            if x >= b.x() + b.width() / 2.0:
+                idx += 1
+        return idx
+
+    def _show_drop_indicator(self, pos):
+        k = self._drop_index(pos)
+        if k < len(self._buttons):
+            xpos = self._buttons[k].x()
+        elif self._buttons:
+            last = self._buttons[-1]
+            xpos = last.x() + last.width()
+        else:
+            xpos = 0
+        self._drop_line.setGeometry(max(0, xpos - 1), 0, 2, self._row.height())
+        self._drop_line.show()
+        self._drop_line.raise_()
+
+    def _hide_drop_indicator(self):
+        try:
+            self._drop_line.hide()
+        except Exception:
+            pass
+
+    def _do_drop(self, pos):
+        self._hide_drop_indicator()
+        src = self._drag_src_idx
+        self._drag_src_idx = None
+        if src is None or src < 0 or src >= len(self._feats):
+            return
+        k = self._drop_index(pos)
+        if k > src:          # removing the source first shifts later slots left
+            k -= 1
+        feat = self._feats[src]
+        ok, msg = self._reorder(feat, k)
+        if not ok:
+            App.Console.PrintWarning(
+                "[PartDesignTimeline] can't move %s here - %s\n" % (feat.Label, msg))
+            try:
+                Gui.getMainWindow().statusBar().showMessage(
+                    "Can't move %s here - it would break: %s" % (feat.Label, msg), 5000)
+            except Exception:
+                pass
+        self.refresh()
+
+    def _reorder(self, feat, new_index):
+        """Move `feat` to position `new_index` in the feature list, rewiring the
+        PartDesign BaseFeature chain. Recomputes; if anything goes invalid the
+        whole move is reverted. Returns (ok, message)."""
+        body = self._body
+        if body is None:
+            return False, "no active body"
+        doc = body.Document
+        full = list(body.Group)                                  # may include Origin
+        feats = [o for o in full if o.TypeId != 'App::Origin']
+        if feat not in feats:
+            return False, "feature not in body"
+        new_index = max(0, min(new_index, len(feats) - 1))
+        if feats.index(feat) == new_index:
+            return True, "no change"
+        # snapshot for revert
+        snap_group = full
+        snap_base = {f.Name: getattr(f, 'BaseFeature', None)
+                     for f in feats if 'BaseFeature' in f.PropertiesList}
+        snap_tip = body.Tip
+        self._guard = True
+        try:
+            neworder = list(feats)
+            neworder.remove(feat)
+            neworder.insert(new_index, feat)
+            origins = [o for o in full if o.TypeId == 'App::Origin']
+            body.Group = origins + neworder
+            prev = None
+            for f in neworder:
+                if _is_solid(f):
+                    f.BaseFeature = prev
+                    prev = f
+            if prev is not None:
+                body.Tip = prev
+            doc.recompute()
+            bad = [o.Label for o in doc.Objects if not o.isValid()]
+            if bad:
+                raise RuntimeError(", ".join(bad))
+            App.Console.PrintMessage(
+                "[PartDesignTimeline] moved %s\n" % feat.Label)
+            return True, "ok"
+        except Exception as e:
+            # revert to the snapshot and recompute back to a valid state
+            for name, base in snap_base.items():
+                o = doc.getObject(name)
+                if o is not None:
+                    o.BaseFeature = base
+            body.Group = snap_group
+            body.Tip = snap_tip
+            try:
+                doc.recompute()
+            except Exception:
+                pass
+            return False, str(e)
+        finally:
+            self._guard = False
+
     def eventFilter(self, obj, ev):
+        et = ev.type()
+        # --- chip: double-click edit, right-click menu, press/drag to reorder ---
         if hasattr(obj, '_ft_feat'):
-            if ev.type() == QtCore.QEvent.MouseButtonDblClick:
+            if et == QtCore.QEvent.MouseButtonDblClick:
                 try:
                     Gui.activeDocument().setEdit(obj._ft_feat)
                 except Exception as e:
                     App.Console.PrintWarning("[PartDesignTimeline] edit: %s\n" % e)
                 return True
-            if ev.type() == QtCore.QEvent.ContextMenu:
+            if et == QtCore.QEvent.ContextMenu:
                 self._context_menu(obj)
+                return True
+            if et == QtCore.QEvent.MouseButtonPress and ev.button() == QtCore.Qt.LeftButton:
+                self._press_pos = _evt_pos(ev)
+            elif et == QtCore.QEvent.MouseMove and (ev.buttons() & QtCore.Qt.LeftButton):
+                if (self._press_pos is not None and
+                        (_evt_pos(ev) - self._press_pos).manhattanLength()
+                        >= QtWidgets.QApplication.startDragDistance()):
+                    self._start_drag(obj)
+                    return True   # consumed as a drag, not a click
+            elif et == QtCore.QEvent.MouseButtonRelease:
+                self._press_pos = None
+        # --- strip: accept drops, draw the insertion line, perform the move ---
+        if obj is self._row:
+            if et in (QtCore.QEvent.DragEnter, QtCore.QEvent.DragMove):
+                if ev.mimeData().hasFormat(_MIME):
+                    ev.acceptProposedAction()
+                    self._show_drop_indicator(_evt_pos(ev))
+                    return True
+            elif et == QtCore.QEvent.Drop:
+                if ev.mimeData().hasFormat(_MIME):
+                    self._do_drop(_evt_pos(ev))
+                    ev.acceptProposedAction()
+                    return True
+            elif et == QtCore.QEvent.DragLeave:
+                self._hide_drop_indicator()
                 return True
         return False
 

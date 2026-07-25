@@ -11,6 +11,11 @@ existing `Body.Tip` mechanism.
 
 - **Draggable scrubber** — drag the slider (or click a chip) and the model
   rebuilds to that point in time.
+- **Drag a chip to reorder** — drag a feature left/right to move it in the
+  history; the BaseFeature chain is rewired and the model recomputed. If the move
+  would break the model (a feature depends on geometry that wouldn't exist yet)
+  it's reverted and you're told what it would have broken — the same dependency
+  limit Fusion has.
 - **Compact feature chips** — feature-type icon + short label, scales to long
   histories, scrolls horizontally.
 - **True time-travel** — shows the model's *solid state* at that step; if you
