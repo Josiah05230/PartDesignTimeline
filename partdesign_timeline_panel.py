@@ -290,6 +290,8 @@ class TimelineWidget(QtWidgets.QWidget):
         a_sel = m.addAction("Select in 3D / tree")
         m.addSeparator()
         a_recompute = m.addAction("Force recompute (regenerate)")
+        m.addSeparator()
+        a_delete = m.addAction("Delete feature")
         act = _qt_exec(m, btn.mapToGlobal(btn.rect().bottomLeft()))
         try:
             if act == a_rename:
@@ -304,6 +306,8 @@ class TimelineWidget(QtWidgets.QWidget):
                 Gui.Selection.addSelection(feat)
             elif act == a_recompute:
                 self._recompute_all()
+            elif act == a_delete:
+                self._delete(feat)
         except Exception as e:
             App.Console.PrintWarning("[PartDesignTimeline] menu: %s\n" % e)
 
@@ -485,6 +489,65 @@ class TimelineWidget(QtWidgets.QWidget):
             return False, str(e)
         finally:
             self._guard = False
+
+    def _delete(self, feat):
+        """Delete a feature from the body, bridging the BaseFeature chain around
+        it. Wrapped in an undo transaction; if the delete would break a downstream
+        feature the whole thing is reverted (and the user could Ctrl+Z a
+        successful delete too). Asks for confirmation first."""
+        body = self._body
+        if body is None:
+            return
+        doc = body.Document
+        feats = [o for o in body.Group if o.TypeId != 'App::Origin']
+        if feat not in feats:
+            return
+        # confirm - deletion is destructive (though undoable)
+        r = QtWidgets.QMessageBox.question(
+            self, "Delete feature",
+            "Delete '%s' from the history?" % feat.Label,
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No)
+        if r != QtWidgets.QMessageBox.Yes:
+            return
+        if not doc.UndoMode:
+            doc.UndoMode = 1       # so abort/Ctrl+Z can restore the object
+        self._guard = True
+        doc.openTransaction("Delete %s" % feat.Label)
+        try:
+            if _is_solid(feat):
+                base = getattr(feat, 'BaseFeature', None)
+                # any solid that used feat as its base now bridges to feat's base
+                for o in feats:
+                    if (o is not feat and 'BaseFeature' in o.PropertiesList
+                            and getattr(o, 'BaseFeature', None) is feat):
+                        o.BaseFeature = base
+                if getattr(body, 'Tip', None) is feat:
+                    body.Tip = base
+            name = feat.Name
+            doc.removeObject(name)
+            doc.recompute()
+            bad = [o.Label for o in doc.Objects if not o.isValid()]
+            if bad:
+                raise RuntimeError(", ".join(bad))
+            doc.commitTransaction()
+            App.Console.PrintMessage("[PartDesignTimeline] deleted %s\n" % name)
+        except Exception as e:
+            doc.abortTransaction()
+            try:
+                doc.recompute()
+            except Exception:
+                pass
+            App.Console.PrintWarning(
+                "[PartDesignTimeline] can't delete %s - would break: %s\n" % (feat.Label, e))
+            try:
+                Gui.getMainWindow().statusBar().showMessage(
+                    "Can't delete %s - it would break: %s" % (feat.Label, e), 5000)
+            except Exception:
+                pass
+        finally:
+            self._guard = False
+        self.refresh()
 
     def eventFilter(self, obj, ev):
         et = ev.type()

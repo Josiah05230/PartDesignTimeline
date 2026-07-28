@@ -21,7 +21,11 @@ existing `Body.Tip` mechanism.
 - **True time-travel** — shows the model's *solid state* at that step; if you
   land on a sketch or datum it overlays that on the solid-so-far.
 - **Right-click a chip** → Rename, Edit feature, Toggle visibility,
-  Select in 3D/tree, **Force recompute** (regenerate).
+  Select in 3D/tree, **Force recompute** (regenerate), **Delete feature**.
+- **Delete a feature** — right-click → Delete. The BaseFeature chain is bridged
+  around it (dependents reconnect to its base; the tip steps back). If deleting it
+  would break a downstream feature the delete is reverted; a successful delete is
+  undoable with Ctrl+Z.
 - **Ctrl+click** → multi-select features into FreeCAD's selection for grouping /
   running native operations on several at once.
 - **Double-click** → edit that feature.
